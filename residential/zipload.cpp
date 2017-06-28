@@ -454,7 +454,7 @@ bool ZIPload::get_status(int controller_number){
 		if (enable_volt_control){
 			if (average_delay_time==0){
 				// no jitter
-				temp_status = gbcontroller.frequency_controller(circuit_status, measured_frequency);
+				temp_status = gbcontroller.voltage_controller(circuit_status, measured_voltage);
 				status_confirmed = true;
 			} else {
 				static bool volt_first = true;

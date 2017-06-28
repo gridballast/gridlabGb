@@ -12,6 +12,13 @@
 
 #include "residential.h"
 #include "residential_enduse.h"
+#include "../powerflow/node.h"
+#include "../powerflow/triplex_meter.h"
+#include "gridballastcontroller.h"
+#include <vector>
+
+using namespace std;
+using std::vector;
 
 class waterheater : public residential_enduse {
 private:
@@ -96,6 +103,54 @@ public:
 	double actual_voltage;
 	double prev_load;
 	complex waterheater_actual_power;	///< the actual power draw of the object after accounting for voltage
+
+	// define the controller
+	gridballastcontroller::gridballastcontroller gbcontroller;
+
+	// frequency control variables
+	double main_frequency;			// grid frequency accessed from the parent triplex node
+	double measured_frequency; 		// grid frequency from measurement at each time t
+	double freq_lowlimit;			// lower tripping limit of the frequency
+	double freq_uplimit;			// upper tripping limit of the frequency
+	// voltage control variables
+	double measured_voltage;		// grid voltage from measurement at each time t
+	double volt_lowlimit;			// lower tripping limit of the voltage
+	double volt_uplimit;			// upper tripping limit of the voltage
+
+	// we use this variable to toggle with/without frequency/voltage control
+	bool enable_freq_control;
+	bool enable_volt_control;
+
+	bool circuit_status;			// True - ON; False - OFF, the returned variable to decide ON/OFF status
+	bool temp_status;
+
+	// if True, we let the circuit ON when T_t < lower thermal band,
+	// and let the circuit OFF when T_t > upper thermal band (for water heater)
+	// if False, it is the other way around (for refrigerator, e.g.)
+	bool reverse_ON_OFF;
+
+	// jitter function,  jitter is enabled by default once freq/volt controller is enabled, can be set to 0
+	// we give the same parameter to freq/volt jitters
+	double average_delay_time;   			// in seconds, parameter for the uniform distribution
+	// freq jitter variabels
+	int freq_jitter_counter;			  	// a jitter counter generated based on Uniform Distribution each time the frequency violation happened
+	bool freq_circuit_status_after_delay;  	// boolen to keep track of the circuit status after certain delay
+	bool freq_jitter_toggler;				// indicate whether the freq jitter is activated (freq_jitter_counter>0)
+	// volt jitter variables
+	int volt_jitter_counter;			  	// a jitter counter generated based on Uniform Distribution each time the voltage violation happened
+	bool volt_circuit_status_after_delay;  	// boolen to keep track of the circuit status after certain delay
+	bool volt_jitter_toggler;				// indicate whether the volt jitter is activated (volt_jitter_counter>0)
+	int temp_cnt;
+
+	// force the circuit to be ON/OFF, we don't need it here
+	int enable_lock;
+	int lock_STATUS;
+
+	// controller_priority
+	int controller_priority;
+	bool status_confirmed;
+	vector<pair<int,int> > controller_array;
+
 //	Fortran water heater parameters
 public:
 	double dr_signal;				//dr_signal
@@ -183,7 +238,7 @@ public:
 	double new_temp_1node(double T0, double delta_t);	// Calcs temp after transition...
 	double new_time_2zone(double h0, double h1);		// Calcs time to transition...
 	double new_h_2zone(double h0, double delta_t);      // Calcs h after transition...
-
+	bool get_status(int controller_number);
 	double get_Tambient(enumeration water_heater_location);		// ambient T [F] -- either an indoor house temperature or a garage temperature, probably...
 	typedef enum {MODEL_NOT_1ZONE=0, MODEL_NOT_2ZONE=1} WRONGMODEL;
 	void wrong_model(WRONGMODEL msg);

@@ -26,57 +26,13 @@
 
 #include "house_a.h"
 #include "waterheater.h"
+#include "../powerflow/node.h"
+#include "../powerflow/triplex_meter.h"
+
 
 #define TSTAT_PRECISION 0.01
 #define HEIGHT_PRECISION 0.01
-/*
-#define RUN_WH_FC FC_FUNC (run_wh, RUN_WH)
-#ifdef __cplusplus
-extern "C"  // prevent C++ name mangling
-#endif
-void RUN_WH_FC (
-        int *op_mode,
-        double *sim_time,
-        int *large_bins,
-        int *small_bins,
-        double *heater_h,
-		double *heater_D,
-        int *dr_signal,
-        double *sensor_pos,
-        double *heater_q,
-        double *heater_size,
-		double *heat_lost_rate,
-        double *water_rho,
-        double *water_k0,
-        double *water_alpha,
-        double *water_cv,
-        double *temp_amb,
-		double *hum_amb,
-        double *temp_in,
-        double *temp_set,
-        double *temp_db,
-        double *comp_power,
-        double *comp_off,
-		double *low_amb_lim,
-        double *up_amb_lim,
-        double *water_low_lim,
-        double *mode_3_off,
-        double *t_db,
-        double *t_wb,
-		double *upper_elem_off,
-        double *v_flow_threshold,
-        double *v_flow,
-        double *init_tank_temp,
-        double *lowerf,
-        double *upperf,
-		int *ncomp,
-        int *nheat,
-        int *heat_up,
-        double *ca,
-        double *power,
-        double *COP,
-        double *energy);
-*/
+
 //////////////////////////////////////////////////////////////////////////
 // waterheater CLASS FUNCTIONS
 //////////////////////////////////////////////////////////////////////////
@@ -143,14 +99,31 @@ waterheater::waterheater(MODULE *module) : residential_enduse(module){
 			PT_enumeration,"load_state",PADDR(load_state),
 				PT_KEYWORD,"DEPLETING",(enumeration)DEPLETING,
 				PT_KEYWORD,"RECOVERING",(enumeration)RECOVERING,
-				PT_KEYWORD,"STABLE",(enumeration)STABLE,	
+				PT_KEYWORD,"STABLE",(enumeration)STABLE,
 			PT_double,"actual_voltage",PADDR(actual_voltage),PT_ACCESS,PA_HIDDEN,
 			PT_double,"nominal_voltage",PADDR(nominal_voltage),PT_ACCESS,PA_HIDDEN,
 			PT_enumeration,"re_override",PADDR(re_override), PT_DESCRIPTION, "the override setting for the water heater",
 				PT_KEYWORD,"OV_ON",(enumeration)OV_ON,
 				PT_KEYWORD,"OV_NORMAL",(enumeration)OV_NORMAL,
 				PT_KEYWORD,"OV_OFF",(enumeration)OV_OFF,
-			NULL)<1) 
+			// frquency variables
+			PT_double,"measured_frequency[Hz]", PADDR(measured_frequency), PT_DESCRIPTION, "frequency measurement - average of present phases",
+			PT_bool, "enable_freq_control", PADDR(enable_freq_control), PT_DESCRIPTION, "Disable/Enable GridBallast controller based on Grid Frequency",
+			PT_double,"freq_lowlimit[Hz]", PADDR(freq_lowlimit), PT_DESCRIPTION, "lower frequency limit for GridBallast control",
+			PT_double,"freq_uplimit[Hz]", PADDR(freq_uplimit), PT_DESCRIPTION, "higher frequency limit for GridBallast control",
+			// voltage variables
+			PT_double, "measured_voltage[V]", PADDR(measured_voltage),PT_DESCRIPTION,"measured voltage from the circuit",
+			PT_bool, "enable_volt_control", PADDR(enable_volt_control), PT_DESCRIPTION, "Disable/Enable GridBallast controller based on Grid Voltage",
+			PT_double,"volt_lowlimit[Hz]", PADDR(volt_lowlimit), PT_DESCRIPTION, "lower voltage limit for GridBallast control",
+			PT_double,"volt_uplimit[Hz]", PADDR(volt_uplimit), PT_DESCRIPTION, "higher voltage limit for GridBallast control",
+			// jitter variables
+			PT_double,"average_delay_time[s]", PADDR(average_delay_time), PT_DESCRIPTION, "average delay time for the jitter in seconds",
+			// lock mode
+			PT_int16, "enable_lock", PADDR(enable_lock), PT_DESCRIPTION, "Enable(1)/Disable(0) lock mode for the GridBallast controller",
+			PT_int16, "lock_STATUS", PADDR(lock_STATUS), PT_DESCRIPTION, "True(1)/False(0) of the lock status once the lock is enabled",
+			// controller priority
+			PT_int16, "controller_priority", PADDR(controller_priority), PT_DESCRIPTION, "We have four controllers, a-lock mode controller;b-frequency controller; c-voltage controller; d-thermostat controller(optional), a four-digit integer is used to indicate the priority of the controllers, e.g, 4312, a>b>d>c",
+			NULL)<1)
 			GL_THROW("unable to publish properties in %s",__FILE__);
 	}
 }
@@ -179,6 +152,45 @@ int waterheater::create()
 	is_waterheater_on = 0;
 //	power_kw = complex(0,0);
 	Tw = 0.0;
+
+	// initialize controller related variables
+
+	// lock variables
+	enable_lock = 0;
+	lock_STATUS = 0;
+
+	// frequency and voltage controllers
+	enable_freq_control = false;
+	measured_frequency = 60;
+	freq_lowlimit = 59.95;
+	freq_uplimit = 60.05;
+
+	enable_volt_control = false;
+	measured_voltage = 120;
+	volt_lowlimit = 119.1;
+	volt_uplimit = 121.1; // a slightly higher value
+
+	circuit_status = false;
+	temp_status = false;
+	// if False, we let the circuit ON when T_t < lower thermal band,
+	// and let the circuit OFF when T_t > upper thermal band (for water heater)
+	// if True, it is the other way around (for refrigerator, e.g.)
+	reverse_ON_OFF = false;
+
+	// initialize jitter related variables
+	average_delay_time = 0;				// 0 s, average delay time during freq/volt violation
+
+	freq_jitter_counter = 0; 				// start with 0, initilize using Poisson Process after event triggered
+	freq_circuit_status_after_delay = false;
+	freq_jitter_toggler = false;
+
+	volt_jitter_counter = 0; 				// start with 0, initilize using Poisson Process after event triggered
+	volt_circuit_status_after_delay = false;
+	volt_jitter_toggler = false;
+
+	// controller priority
+	controller_priority = 3214;		// by default, thermostat>lock mode controller > freq > volt
+	status_confirmed = false;
 
 	// location...mostly in garage, a few inside...
 	location = gl_random_bernoulli(RNGSTATE,0.80) ? GARAGE : INSIDE;
@@ -217,6 +229,7 @@ int waterheater::create()
 	return res;
 
 }
+
 
 /** Initialize water heater model properties - randomized defaults for all published variables
  **/
@@ -493,119 +506,23 @@ int waterheater::init(OBJECT *parent)
 			break;
 	}
 
-	if(current_model == FORTRAN){
-		if(simulation_time <= 0){
-			GL_THROW("The simulation time for the fortran water heater model must be greater than 0.");
-		}
-		fwh_sim_time = gl_globalclock;
-		ncomp = 0;
-		nheat[0] = nheat[1] = 0;
-		heat_up = 0; /* false */
-		fwh_energy = 0.0;
+	/* initialize the GridBallast controller */
+	gbcontroller.set_parameters(freq_lowlimit,freq_uplimit,volt_lowlimit,volt_uplimit,tank_setpoint,thermostat_deadband);
 
-		if(tank_volume == 40){
-			thermal_conductivity = 1.80;
-			convective_coefficient = 0.0024;
-			water_density = 1000.0;
-			water_heat_capacity = 4181.3;
-			h = 1.1;
-			tank_diameter = 0.3568;
-			sensor_position[0] = 0.92;
-			sensor_position[1] = 0.4;
-			heater_element_power[0] = 4200.0;
-			heater_element_power[1] = 2000.0;
-			heater_size[0] = heater_size[1] = 0.01;
-			heater_element_position[0] = heater_element_position[1] = 0.2;
-			tank_heat_loss_rate = 3.5;
-			temp_set[0] = temp_set[1] = 51.37;
-			thermostat_deadband = 0.75;
-			inlet_water_flow_threshold = 0.0;
-			compressor_power_capacity = 750.0;
-			compressor_activation_temp_offset = 9.0;
-			lowest_ambient_temperature_limit = 45.0;
-			highest_ambient_temperature_limit = 109.0;
-			lowest_water_temperature_limit = 58.0;
-			activation_temperature_offset = 5.0;
-			ambient_air_dry_bulb_temp = 67.5; //not used
-			ambient_air_wet_bulb_temp = 57.0; //not used
-			upper_element_activation_temp_offset = 18.0;
-			upper_fraction = 0.83;
-			lower_fraction = 0.20;
-			coarse_tank_grid = 12;
-			fine_tank_grid = 12;
-		} else if(tank_volume == 80){
-			if(operating_mode == 3){//electric resistance wh
-				thermal_conductivity = 0.58;
-				convective_coefficient = 0.0024;
-				water_density = 1000;
-				water_heat_capacity = 4181.3;
-				h = 1.524;
-				tank_diameter = 0.508;
-				sensor_position[0] = 0.92;
-				sensor_position[1] = 0.4;
-				heater_element_power[0] = 3900.0;
-				heater_element_power[1] = 3900.0;
-				heater_size[0] = 0.01;
-				heater_size[1] = 0.01;
-				heater_element_position[0] = 1.143;
-				heater_element_position[1] = 0.254;
-				tank_heat_loss_rate = 3.35;
-				temp_set[0] = temp_set[1] = 51.67;
-				thermostat_deadband = 0.75;
-				inlet_water_flow_threshold = 0.0;
-				compressor_power_capacity = 750.0;
-				compressor_activation_temp_offset = 9.0;
-				lowest_ambient_temperature_limit = 45.0;
-				highest_ambient_temperature_limit = 109.0;
-				lowest_water_temperature_limit = 58.0;
-				activation_temperature_offset = 5.0;
-				ambient_air_dry_bulb_temp = 67.5; //not used
-				ambient_air_wet_bulb_temp = 57.0; //not used
-				upper_element_activation_temp_offset = 18.0;
-				upper_fraction = 0.83;
-				lower_fraction = 0.20;
-				coarse_tank_grid = 12;
-				fine_tank_grid = 12;
-			} else { //heat pump wh
-				thermal_conductivity = 0.58;
-				convective_coefficient = 0.0024;
-				water_density = 1000;
-				water_heat_capacity = 4181.3;
-				h = 1.4732;
-				tank_diameter = 0.5;
-				sensor_position[0] = 1.2277;
-				sensor_position[1] = 0.4911;
-				heater_element_power[0] = 4200.0;
-				heater_element_power[1] = 2000.0;
-				heater_size[0] = 0.0106;
-				heater_size[1] = 0.01;
-				heater_element_position[0] = heater_element_position[1] = 0.2;
-				tank_heat_loss_rate = 3.9;
-				temp_set[0] = temp_set[1] = 51.67;
-				thermostat_deadband = 2.25;
-				inlet_water_flow_threshold = 0.0;
-				compressor_power_capacity = 750.0;
-				compressor_activation_temp_offset = 9.0;
-				lowest_ambient_temperature_limit = 45.0;
-				highest_ambient_temperature_limit = 109.0;
-				lowest_water_temperature_limit = 58.0;
-				activation_temperature_offset = 5.0;
-				ambient_air_dry_bulb_temp = 67.5; //not used
-				ambient_air_wet_bulb_temp = 57.0; //not used
-				upper_element_activation_temp_offset = 18.0;
-				upper_fraction = 0.83;
-				lower_fraction = 0.20;
-				coarse_tank_grid = 12;
-				fine_tank_grid = 12;
-			}
-			for( int i = 0; i < coarse_tank_grid*fine_tank_grid; i++){
-				init_tank_temp[i] = (Tw - 32.0) * (5.0 / 9.0);
-				tank_water_temp[i] = init_tank_temp[i];
-			}
-		} else {
-			GL_THROW("Invalide tank volume for the fortran water heater_model. Valid volumes are 40 or 80 gallons.");
-		}
-	}
+	/* initialize controller priority */
+	controller_array.clear();
+	controller_array.push_back(std::make_pair(controller_priority/1000,1));
+	controller_array.push_back(std::make_pair((controller_priority%1000)/100,2));
+	controller_array.push_back(std::make_pair((controller_priority%100)/10,3));
+	controller_array.push_back(std::make_pair(controller_priority%10,4));
+
+	// sort the controller along with the index, accessing index using controller_array[3].second
+	sort(controller_array.begin(), controller_array.end());
+//	gl_output("first controller id is: %d", controller_array[3].second);
+//	gl_output("second controller id is: %d", controller_array[2].second);
+//	gl_output("third controller id is: %d", controller_array[1].second);
+//	gl_output("fourth controller id is: %d", controller_array[0].second);
+
 	return residential_enduse::init(parent);
 }
 
@@ -614,36 +531,192 @@ int waterheater::isa(char *classname)
 	return (strcmp(classname,"waterheater")==0 || residential_enduse::isa(classname));
 }
 
+bool waterheater::get_status(int controller_number){
+	// at the beginning, status_confirmed is false, once it is true, the status is confirmed
+	// be default, the temp_status remains to be the previous status if no controller is trying to change the status
+	temp_status = circuit_status;
+	switch(controller_number){
+	case 1:
+		// lock mode controller
+		if (enable_lock==1) {
+			temp_status = gbcontroller.lock_mode_controller(circuit_status, enable_lock==1, lock_STATUS==1);
+			status_confirmed = true;
+		}
+		// do nothing if the mode is not enabled
+		break;
+	case 2:
+		// frequency controller with jitter
+		if (enable_freq_control){
+			if (average_delay_time==0){
+				// no jitter
+				temp_status = gbcontroller.frequency_controller(circuit_status, measured_frequency);
+				status_confirmed = true;
+			} else {
+				static bool freq_first = true;
+//				gl_output("==== freq_jitter_toggler : %d", freq_jitter_toggler);
+				if (!freq_jitter_toggler){
+//					gl_output("measured_frequency:%f\t low_f:%f\t up_f:%f",measured_frequency,freq_lowlimit,freq_uplimit);
+					// jitter hasn't been activated (no violation happened)
+					if( (freq_jitter_counter == 0) && gbcontroller.check_freq_violation(measured_frequency)){
+						// keep track of the first time jitter is triggered
+						if (freq_first){
+							freq_first = false;
+						}
+						// as we detect the frequency violation, we initialize jitter_counter, let circuit_status_after_delay=temp_status
+						freq_circuit_status_after_delay = gbcontroller.frequency_controller(circuit_status, measured_frequency);
+						// only start jitter_counter when the frequency violation happened
+						freq_jitter_counter = (int) (gl_random_uniform(RNGSTATE,1, 2*average_delay_time) + 0.5);
+//						gl_output(" we are using freq jitter! freq_jitter_counter:%d",freq_jitter_counter);
+						// jitter has been activated, starting counting down
+						freq_jitter_toggler = true;
+//						gl_output(" freq_circuit_status_after_delay:%d",freq_circuit_status_after_delay);
+//						gl_output(" ==freq_jitter_toggler : %d", freq_jitter_toggler);
+					}
+				} else if (freq_jitter_toggler){
+//					gl_output(" ***freq_jitter_toggler : %d freq_jitter_counter:%d", freq_jitter_toggler,freq_jitter_counter);
+					// jitter_toggler mode, wait to deploy jitter status after jitter_counter times
+					if (!freq_first && (freq_jitter_counter == 0)){
+						// not the first time that jitter is triggered and jitter_counter == 0,
+						// let the status be the circuit_status_after_delay
+//						gl_output("============== count down to 0 ===========");
+						temp_status = freq_circuit_status_after_delay;
+						freq_jitter_toggler = false;
+						status_confirmed = true;
+//						gl_output("exit! the final status is %d", temp_status);
+					} else if (freq_jitter_counter > 0) {
+						// if jitter_counter >0,  we subtract 1
+						freq_jitter_counter -= 1;
+//						gl_output("we are inside counter deduct! jitter_counter:%d, circuit_status:%d",freq_jitter_counter,circuit_status);
+					}
+				}
+			}
+		}
+		// do nothing is mode is not enabled
+		break;
+	case 3:
+		// voltage controller with jitter
+		if (enable_volt_control){
+			if (average_delay_time==0){
+				// no jitter
+				temp_status = gbcontroller.frequency_controller(circuit_status, measured_frequency);
+				status_confirmed = true;
+			} else {
+				static bool volt_first = true;
+				if (!volt_jitter_toggler){
+					// jitter hasn't been activated (no violation happened)
+					if( (volt_jitter_counter == 0) && gbcontroller.check_volt_violation(measured_voltage)){
+						// keep track of the first time jitter is triggered
+						if (volt_first){
+							volt_first = false;
+						}
+						// as we detect the voltage violation, we initialize jitter_counter, keep track of the status
+						volt_circuit_status_after_delay = gbcontroller.voltage_controller(circuit_status, measured_voltage);
+						// only start jitter_counter when the voltage violation happened
+						volt_jitter_counter = (int) (gl_random_uniform(RNGSTATE,0, 2*average_delay_time) + 0.5);
+						//	gl_output("we are using jitter! jitter_counter:%d",jitter_counter);
+						// jitter has been activated, starting counting down
+						volt_jitter_toggler = true;
+						//gl_output("jitter_counter:%d",jitter_counter);
+					}
+				} else if (volt_jitter_toggler){
+					// jitter_toggler mode, wait to deply jitter status after jitter_counter times
+					if (!volt_first && (volt_jitter_counter == 0)){
+						// not the first time that jitter is triggered and jitter_counter == 0,
+						// let the status be the circuit_status_after_delay
+						temp_status = volt_circuit_status_after_delay;
+						volt_jitter_toggler = false;
+						status_confirmed = true;
+					} else if (volt_jitter_counter > 0) {
+						// if jitter_counter >0,  we subtract 1
+						volt_jitter_counter -= 1;
+						//gl_output("we are inside counter deduct! jitter_counter:%d, circuit_status:%d",jitter_counter,circuit_status);
+					}
+				}
+			}
+		}
+		// do nothing if mode is not enabled
+		break;
+	case 4:
+		// thermostat controller, we only trigger the controller if the thermal violation happens
+//		gl_output("temp:%f\t setpoint:%f\t deadband:%f",Tw,tank_setpoint,thermostat_deadband);
+		if (gbcontroller.check_thermal_violation(Tw)){
+			temp_status = gbcontroller.thermostat_controller(circuit_status, Tw, reverse_ON_OFF);
+//			gl_output("thermal violated: %d", temp_status);
+			status_confirmed = true;
+		}
+		// do nothing if no thermal violation
+		break;
+	default:
+		GL_THROW("unknown controller number, it has to be 1/2/3/4");
+	}
+	return temp_status;
+}
 
 void waterheater::thermostat(TIMESTAMP t0, TIMESTAMP t1){
 	Ton  = tank_setpoint - thermostat_deadband/2;
 	Toff = tank_setpoint + thermostat_deadband/2;
-
+	int ii;
 	enumeration tank_status = tank_state();
 	switch(tank_status){
 		case FULL:
-			if(Tw-TSTAT_PRECISION < Ton){
-				heat_needed = TRUE;
-			} else if (Tw+TSTAT_PRECISION > Toff){
-				heat_needed = FALSE;
-			} else {
-				; // no change
+			circuit_status = heat_needed;
+			// we loop through the controller_array from [3],[2],[1],[0], representing the controller with the highest priority
+			// to the controller with the lowest priority.
+			for (ii=3; ii>=0; ii--){
+				if (!status_confirmed){
+					// if no status can be confirmed, we keep on checking the controller with the lower priority
+					temp_status = get_status(controller_array[ii].second);
+				} else{
+					break;
+				}
+			}
+			circuit_status = temp_status;
+			heat_needed = circuit_status;
+			if (status_confirmed){
+				// set status_confirmed back to false, force jitter back to default
+				status_confirmed = false;
+				freq_jitter_counter = 0;
+				freq_jitter_toggler = false;
+				volt_jitter_counter = 0;
+				volt_jitter_toggler = false;
 			}
 			break;
 		case PARTIAL:
 			if (heat_mode == HEAT_PUMP) {
 				if(Tcontrol-TSTAT_PRECISION < Ton){
+					// enable_subsecond_models = TRUE;
 					heat_needed = TRUE;
 				} else if (Tcontrol+TSTAT_PRECISION > Toff){
 					heat_needed = FALSE;
 				} else {
-					; // no change
+					// no change unless the gridBallast controller is enabled
+					circuit_status = heat_needed;
+					for (ii=3; ii>=0; ii--){
+						if (!status_confirmed){
+							// if no status can be confirmed, we keep on checking the controller with the lower priority
+							temp_status = get_status(controller_array[ii].second);
+						} else{
+							break;
+						}
+					}
+					circuit_status = temp_status;
+					heat_needed = circuit_status;
+					if (status_confirmed){
+						// set status_confirmed back to false, force jitter back to default
+						status_confirmed = false;
+						freq_jitter_counter = 0;
+						freq_jitter_toggler = false;
+						volt_jitter_counter = 0;
+						volt_jitter_toggler = false;
+					}
 				}
 			} else {
+				// enable_subsecond_models = TRUE;
 				heat_needed = TRUE; // if we aren't full, fill 'er up!
 			}
 			break;
 		case EMPTY:
+			// enable_subsecond_models = TRUE;
 			heat_needed = TRUE; // if we aren't full, fill 'er up!
 			break;
 		default:
@@ -651,6 +724,8 @@ void waterheater::thermostat(TIMESTAMP t0, TIMESTAMP t1){
 	}
 	//return TS_NEVER; // this thermostat is purely reactive and will never drive the system
 }
+
+
 
 /** Water heater plc control code to set the water heater 'heat_needed' state
 	The thermostat set point, deadband, tank state(height of hot water column) and 
@@ -775,7 +850,6 @@ TIMESTAMP waterheater::sync(TIMESTAMP t0, TIMESTAMP t1)
 		is_waterheater_on = 0;
 	}
 
-
 	TIMESTAMP t2 = residential_enduse::sync(t0,t1);
 	
 	// Now find our current temperatures and boundary height...
@@ -830,48 +904,7 @@ TIMESTAMP waterheater::sync(TIMESTAMP t0, TIMESTAMP t1)
 				}
 				load.heatgain = internal_gain;
 			}
-           /* RUN_WH_FC(
-                    &op_mode,
-                    &sim_time,
-                    &coarse_tank_grid,
-					&fine_tank_grid,
-                    &h,
-                    &tank_diameter,
-                    &dr_sig,
-					sensor_position,
-                    heater_element_power,
-                    heater_size,
-					&tank_heat_loss_rate,
-                    &water_density,
-                    &thermal_conductivity,
-					&convective_coefficient,
-                    &water_heat_capacity,
-                    &ambient_temp,
-                    &ambient_rh,
-					&t_in,
-                    temp_set,
-                    &thermostat_deadband,
-                    &compressor_power_capacity,
-					&compressor_activation_temp_offset,
-                    &lowest_ambient_temperature_limit,
-					&highest_ambient_temperature_limit,
-                    &lowest_water_temperature_limit,
-					&activation_temperature_offset,
-                    &ambient_air_dry_bulb_temp,
-                    &ambient_air_wet_bulb_temp,
-					&upper_element_activation_temp_offset,
-                    &inlet_water_flow_threshold,
-                    &water_demand,
-					init_tank_temp,
-                    &lower_fraction,
-                    &upper_fraction,
-                    &ncomp,
-					nheat,
-                    &heat_up,
-                    tank_water_temp,
-                    &fwh_power,
-					&fwh_cop,
-					&fwh_energy);*/
+
             load.total = complex(fwh_energy/(1000*simulation_time), 0);
             fwh_energy = 0;
 			fwh_sim_time = t1+ (TIMESTAMP)simulation_time;
@@ -904,8 +937,14 @@ TIMESTAMP waterheater::sync(TIMESTAMP t0, TIMESTAMP t1)
 		prev_load = actual_load;
 		power_state = PS_ON;
 	}
-	else
+	else{
 		power_state = PS_OFF;
+	}
+
+	measured_voltage = pCircuit->pV->Mag();
+
+	//TODO: add voltage controller? need to check which one has higher priority
+
 
 //	gl_enduse_sync(&(residential_enduse::load),t1);
 	if(current_model != FORTRAN){
@@ -928,7 +967,8 @@ TIMESTAMP waterheater::sync(TIMESTAMP t0, TIMESTAMP t1)
 			return t2;
 		}
 	}
-}
+	
+}	
 
 TIMESTAMP waterheater::postsync(TIMESTAMP t0, TIMESTAMP t1){
 	return TS_NEVER;

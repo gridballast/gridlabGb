@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <math.h>
 #include "residential.h"
+#include "gridballastcontroller.h"
 
 // obsolete as of 3.0: #include "house_a.h"
 #include "appliance.h"

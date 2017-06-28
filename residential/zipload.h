@@ -11,6 +11,11 @@
 #define _ZIPLOAD_H
 #include "residential.h"
 #include "residential_enduse.h"
+#include "gridballastcontroller.h"
+#include <vector>
+
+using namespace std;
+using std::vector;
 
 class ZIPload : public residential_enduse
 {
@@ -49,7 +54,49 @@ public:
 	double multiplier;			///< static multiplier to modify base power ( load = base_power * multiplier )
 	double recovery_duty_cycle; ///< duty cycle during recovery interval
 	bool heatgain_only;			///< Activates a heat only mode - no load electric load is assigned to the load
-	 
+
+	// define the controller
+	gridballastcontroller::gridballastcontroller gbcontroller;
+
+	// frequency control variables
+	double main_frequency;			// grid frequency accessed from the parent triplex node
+	double measured_frequency; 		// grid frequency from measurement at each time t
+	double freq_lowlimit;			// lower tripping limit of the frequency
+	double freq_uplimit;			// upper tripping limit of the frequency
+	// voltage control variables
+	double measured_voltage;		// grid voltage from measurement at each time t
+	double volt_lowlimit;			// lower tripping limit of the voltage
+	double volt_uplimit;			// upper tripping limit of the voltage
+
+	// we use this variable to toggle with/without frequency/voltage control
+	bool enable_freq_control;
+	bool enable_volt_control;
+
+	bool prev_status;
+	bool circuit_status;			// True - ON; False - OFF, the returned variable to decide ON/OFF status
+	bool temp_status;
+
+	// jitter function,  jitter is enabled by default once freq/volt controller is enabled, can be set to 0
+	// we give the same parameter to freq/volt jitters
+	double average_delay_time;   			// in seconds, parameter for the uniform distribution
+	// freq jitter variabels
+	int freq_jitter_counter;			  	// a jitter counter generated based on Uniform Distribution each time the frequency violation happened
+	bool freq_circuit_status_after_delay;  	// boolen to keep track of the circuit status after certain delay
+	bool freq_jitter_toggler;				// indicate whether the freq jitter is activated (freq_jitter_counter>0)
+	// volt jitter variables
+	int volt_jitter_counter;			  	// a jitter counter generated based on Uniform Distribution each time the voltage violation happened
+	bool volt_circuit_status_after_delay;  	// boolen to keep track of the circuit status after certain delay
+	bool volt_jitter_toggler;				// indicate whether the volt jitter is activated (volt_jitter_counter>0)
+	int temp_cnt;
+
+	// force the circuit to be ON/OFF, we don't need it here
+	int enable_lock;
+	int lock_STATUS;
+
+	// controller_priority
+	int controller_priority;
+	bool status_confirmed;
+	vector<pair<int,int> > controller_array;
 
 	typedef struct {
 		double *on;
@@ -72,6 +119,7 @@ public:
 	int create();
 	int init(OBJECT *parent);
 	int isa(char *classname);
+	bool get_status(int controller_number);
 	TIMESTAMP sync(TIMESTAMP t0, TIMESTAMP t1);
 
 };

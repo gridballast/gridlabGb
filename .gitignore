@@ -1,3 +1,8 @@
+
+# ignore tags
+tags
+documents/
+
 # http://www.gnu.org/software/automake
 
 Makefile.in
@@ -97,10 +102,7 @@ gldcore/config.h.in~
 */*/.dirstamp
 gridlabd.bin
 install/
-install64/
 */autotest/*/
 */*/*/autotest/*/
 validate.txt
 .libs/
-third_party/xerces*/*
-*.xcbkptlist

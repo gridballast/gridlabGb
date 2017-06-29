@@ -719,9 +719,9 @@ object ZIPload {
 };
 
 object ZIPload {
-	name fan1;
+	name fan2;
 	base_power fan1*0.106899;
-	parent house1;
+	parent house2;
 	power_fraction 0.013500;
 	current_fraction 0.253400;
 	impedance_pf 0.970000;
@@ -732,8 +732,8 @@ object ZIPload {
 };
 
 object ZIPload {
-	name fan2;
-	parent house2;
+	name fan1;
+	parent house1;
 	power_fraction 0.013500;
 	current_fraction 0.253400;
 	base_power fan1*0.106899;
@@ -755,15 +755,15 @@ object ZIPload {
 object recorder {
 	interval 3600;
 	property measured_voltage,base_power;
-	file fan1.csv;
+	file fan2.csv;
 	parent fan1;
 };
 
 object recorder {
 	interval 1;
 	property measured_voltage,base_power;
-	file fan2_strict_volt.csv;
-	parent fan2;
+	file fan1_strict_volt.csv;
+	parent fan1;
 };
 
 object recorder {

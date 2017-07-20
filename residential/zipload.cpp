@@ -513,7 +513,14 @@ TIMESTAMP ZIPload::sync(TIMESTAMP t0, TIMESTAMP t1)
 	// access the voltage from the circuit.
 	measured_voltage = pCircuit->pV->Mag();
 
-	circuit_status = prev_status;
+	// decide the current status based on schedule (base_power)
+	if (base_power == 0.){
+		circuit_status = false;
+	} else {
+		circuit_status = true;
+	}
+	// gl_output("testing! base_power: %f, circuit_status:%d", base_power, circuit_status);
+	// circuit_status = prev_status;
 	// we loop through the controller_array from [3],[2],[1],[0], representing the controller with the highest priority
 	// to the controller with the lowest priority.
 	for (ii=3; ii>=0; ii--){

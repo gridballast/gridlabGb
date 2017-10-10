@@ -132,7 +132,7 @@ waterheater::~waterheater()
 {
 }
 
-int waterheater::create() 
+int waterheater::create()
 {
 	int res = residential_enduse::create();
 
@@ -209,7 +209,7 @@ int waterheater::create()
 	if (thermostat_deadband>10)
 		thermostat_deadband = 10;
 
-	tank_UA = clip(gl_random_normal(RNGSTATE,2.0, 0.20),0.1,10) * tank_volume/50;  
+	tank_UA = clip(gl_random_normal(RNGSTATE,2.0, 0.20),0.1,10) * tank_volume/50;
 	if(tank_UA <= 1.0)
 		tank_UA = 2.0;	// "R-13"
 
@@ -239,7 +239,7 @@ int waterheater::init(OBJECT *parent)
 
 	nominal_voltage = 240.0; //@TODO:  Determine if this should be published or how we want to obtain this from the equipment/network
 	actual_voltage = nominal_voltage;
-	
+
 	if(parent != NULL){
 		if((parent->flags & OF_INIT) != OF_INIT){
 			char objname[256];
@@ -286,7 +286,7 @@ int waterheater::init(OBJECT *parent)
 				// None of the parameters were set, so defaulting to a standard size
 				gl_warning( "waterheater::init() : tank volume, diameter, and height were not specified, defaulting to 50 gallons and 3.78 ft");
 
-				tank_volume   = 50;				
+				tank_volume   = 50;
 				tank_height   = 3.782; // was the old default for a 1.5 ft diameter
 				tank_diameter = 2 * sqrt( tank_volume * (1/GALPCF) / (pi * tank_height) );
 				area 		  = (pi * pow(tank_diameter,2))/4;
@@ -303,17 +303,17 @@ int waterheater::init(OBJECT *parent)
 				// Only tank diameter was set, so defaulting to a standard size
 				gl_warning( "waterheater::init() : tank volume and height were not specified, defaulting to 50 gallons");
 
-				tank_volume   = 50;				
+				tank_volume   = 50;
 				area 		  = (pi * pow(tank_diameter,2))/4;
 				tank_height   = tank_volume/GALPCF / area;
 			} else {
 				// Tank volume was not set, so calculating size
 				gl_verbose( "waterheater::init() : tank volume was not specified, calculating from height and diameter");
-				
+
 				area 		  = (pi * pow(tank_diameter,2))/4;
 				tank_volume   = area * tank_height * GALPCF;
 			}
-		}		
+		}
 	} else {
 		if (tank_volume > 100.0 || tank_volume < 20.0){
 			gl_error("watertank volume of %f outside the volume bounds of 20 to 100 gallons.", tank_volume);
@@ -326,14 +326,14 @@ int waterheater::init(OBJECT *parent)
 			if (tank_diameter <= 0) {
 				// Only tank volume was set, set defaulting to a standard size
 				gl_warning( "waterheater::init() : height and diameter were not specified, defaulting to 3.78 ft");
-		
+
 				tank_height   = 3.782; // was the old default for a 1.5 ft diameter
 				tank_diameter = 2 * sqrt( tank_volume * (1/GALPCF) / (pi * tank_height) );
 				area 		  = (pi * pow(tank_diameter,2))/4;
 			} else {
 				// Tank height was not set, so calculating size
 				gl_verbose( "waterheater::init() : tank height was not specified, calculating from volume and diameter");
-				
+
 				area 		  = (pi * pow(tank_diameter,2))/4;
 				tank_height	  = tank_volume/GALPCF / area;
 			}
@@ -341,7 +341,7 @@ int waterheater::init(OBJECT *parent)
 			if (tank_diameter <= 0) {
 				// Tank volume and height were set, so calculating diameter
 				gl_verbose( "waterheater::init() : diameter was not specified, calculating from volume and height");
-		
+
 				tank_diameter = 2 * sqrt( tank_volume * (1/GALPCF) / (pi * tank_height) );
 				area 		  = (pi * pow(tank_diameter,2))/4;
 			} else {
@@ -655,6 +655,21 @@ bool waterheater::get_status(int controller_number){
 void waterheater::thermostat(TIMESTAMP t0, TIMESTAMP t1){
 	Ton  = tank_setpoint - thermostat_deadband/2;
 	Toff = tank_setpoint + thermostat_deadband/2;
+
+    // reset controller priority, allow change over time
+	controller_array.clear();
+	controller_array.push_back(std::make_pair(controller_priority/1000,1));
+	controller_array.push_back(std::make_pair((controller_priority%1000)/100,2));
+	controller_array.push_back(std::make_pair((controller_priority%100)/10,3));
+	controller_array.push_back(std::make_pair(controller_priority%10,4));
+
+	// sort the controller along with the index, accessing index using controller_array[3].second
+	sort(controller_array.begin(), controller_array.end());
+//	gl_output("first controller id is: %d", controller_array[3].second);
+//	gl_output("second controller id is: %d", controller_array[2].second);
+//	gl_output("third controller id is: %d", controller_array[1].second);
+//	gl_output("fourth controller id is: %d", controller_array[0].second);
+//
 	int ii;
 	enumeration tank_status = tank_state();
 	switch(tank_status){
@@ -728,7 +743,7 @@ void waterheater::thermostat(TIMESTAMP t0, TIMESTAMP t1){
 
 
 /** Water heater plc control code to set the water heater 'heat_needed' state
-	The thermostat set point, deadband, tank state(height of hot water column) and 
+	The thermostat set point, deadband, tank state(height of hot water column) and
 	current water temperature are used to determine 'heat_needed' state.
  **/
 TIMESTAMP waterheater::presync(TIMESTAMP t0, TIMESTAMP t1){
@@ -738,7 +753,7 @@ TIMESTAMP waterheater::presync(TIMESTAMP t0, TIMESTAMP t1){
 
 	DATETIME t_next;
 	gl_localtime(t1,&t_next);
-	
+
 	if (t_next.day > 7 ) {
 		if (t_next.hour >= 8) {
 				double temp = 2;
@@ -758,7 +773,7 @@ TIMESTAMP waterheater::presync(TIMESTAMP t0, TIMESTAMP t1){
 			attached to the bug report.
 		 */
 	}
-	
+
 	/* determine loadshape effects */
 	switch(shape.type){
 		case MT_UNKNOWN:
@@ -829,7 +844,7 @@ TIMESTAMP waterheater::presync(TIMESTAMP t0, TIMESTAMP t1){
 /** Water heater synchronization determines the time to next
 	synchronization state and the power drawn since last synch
  **/
-TIMESTAMP waterheater::sync(TIMESTAMP t0, TIMESTAMP t1) 
+TIMESTAMP waterheater::sync(TIMESTAMP t0, TIMESTAMP t1)
 {
 	double internal_gain = 0.0;
 	double nHours = (gl_tohours(t1) - gl_tohours(t0))/TS_SECOND;
@@ -851,7 +866,7 @@ TIMESTAMP waterheater::sync(TIMESTAMP t0, TIMESTAMP t1)
 	}
 
 	TIMESTAMP t2 = residential_enduse::sync(t0,t1);
-	
+
 	// Now find our current temperatures and boundary height...
 	// And compute the time to the next transition...
 	//Adjusted because shapers go on sync, not presync
@@ -967,8 +982,8 @@ TIMESTAMP waterheater::sync(TIMESTAMP t0, TIMESTAMP t1)
 			return t2;
 		}
 	}
-	
-}	
+
+}
 
 TIMESTAMP waterheater::postsync(TIMESTAMP t0, TIMESTAMP t1){
 	return TS_NEVER;
@@ -1030,7 +1045,7 @@ void waterheater::set_time_to_transition(void)
 }
 
 /** Set the water heater model and tank state based on the estimated
-	temperature differential along the height of the water column when it is full, 
+	temperature differential along the height of the water column when it is full,
 	emplty or partial at the current height, given the current water draw.
  **/
 enumeration waterheater::set_current_model_and_load_state(void)
@@ -1046,24 +1061,24 @@ enumeration waterheater::set_current_model_and_load_state(void)
 
 	if (tank_status == FULL) {
 		Tcontrol = Tw;
-	} else if (tank_status == PARTIAL) { 
+	} else if (tank_status == PARTIAL) {
 		Tcontrol = (h*Tw + (height-h)*Tinlet) / height;
 	} else {
 		Tcontrol = Tw;
 	}
 
-	switch(tank_status) 
+	switch(tank_status)
 	{
 		case EMPTY:
-			if (dhdt_empty <= 0.0) 
+			if (dhdt_empty <= 0.0)
 			{
 				// If the tank is empty, a negative dh/dt means we're still
 				// drawing water, so we'll be switching to the 1-zone model...
-				
+
 				/* original plan */
 				//current_model = NONE;
 				//load_state = DEPLETING;
-				
+
 				current_model = ONENODE;
 				load_state = DEPLETING;
 				Tw = Tupper = Tinlet + HEIGHT_PRECISION;
@@ -1105,12 +1120,12 @@ enumeration waterheater::set_current_model_and_load_state(void)
 					}
 				} else {
 					// overriding the plc code ignoring thermostat logic
-					// heating will always be on while in two zone model					
-					heat_needed = TRUE;					
+					// heating will always be on while in two zone model
+					heat_needed = TRUE;
 				}
 
 				double dhdt_full_temp = dhdt(height);
-				
+
 				if (dhdt_full_temp < 0)
 				{
 					if (heat_mode == HEAT_PUMP) {
@@ -1129,7 +1144,7 @@ enumeration waterheater::set_current_model_and_load_state(void)
 				else
 				{
 					current_model = ONENODE;
-					
+
 					heat_needed = cur_heat_needed;
 					load_state = heat_needed ? RECOVERING : DEPLETING;
 				}
@@ -1151,7 +1166,7 @@ enumeration waterheater::set_current_model_and_load_state(void)
 				else
 				{
 					current_model = ONENODE;
-					
+
 					heat_needed = cur_heat_needed;
 					load_state = heat_needed ? RECOVERING : DEPLETING;
 				}
@@ -1189,9 +1204,9 @@ enumeration waterheater::set_current_model_and_load_state(void)
 
 				if (dhdt_now < 0 && (dhdt_now * dhdt_empty) >= 0)
 					load_state = DEPLETING;
-				else if (dhdt_now > 0 && (dhdt_now * dhdt_full) >= 0) 
+				else if (dhdt_now > 0 && (dhdt_now * dhdt_full) >= 0)
 					load_state = RECOVERING;
-				else 
+				else
 				{
 					// dhdt_now is 0, so nothing's happening...
 					current_model = ONENODE;
@@ -1216,9 +1231,9 @@ enumeration waterheater::set_current_model_and_load_state(void)
 
 				if (dhdt_now < 0 && (dhdt_now * dhdt_empty) >= 0)
 					load_state = DEPLETING;
-				else if (dhdt_now > 0 && (dhdt_now * dhdt_full) >= 0) 
+				else if (dhdt_now > 0 && (dhdt_now * dhdt_full) >= 0)
 					load_state = RECOVERING;
-				else 
+				else
 				{
 					// dhdt_now is 0, so nothing's happening...
 					current_model = NONE;
@@ -1255,7 +1270,7 @@ void waterheater::update_T_and_or_h(double nHours)
 	*/
 
 	// set the model and load state
-	switch (current_model) 
+	switch (current_model)
 	{
 		case ONENODE:
 			// Handy that the 1-node model doesn't care which way
@@ -1270,7 +1285,7 @@ SingleZone:
 			// overriding the plc code ignoring thermostat logic
 			// heating will always be on while in two zone model
 			heat_needed = TRUE;
-			switch (load_state) 
+			switch (load_state)
 			{
 				case STABLE:
 					// Change nothing...
@@ -1294,7 +1309,7 @@ SingleZone:
 			}
 
 			// Correct h if it overshot...
-			if (h < ROUNDOFF) 
+			if (h < ROUNDOFF)
 			{
 				// We've over-depleted the tank slightly.  Make a quickie
 				// adjustment to Tlower/Tw to account for it...
@@ -1304,8 +1319,8 @@ SingleZone:
 				double Tnew = Tlower + energy_over/Cw;
 				Tw = Tlower = Tnew;
 				h = 0;
-			} 
-			else if (h > height) 
+			}
+			else if (h > height)
 			{
 				// Ditto for over-recovery...
 				double vol_over = tank_volume/GALPCF * (h-height)/height;
@@ -1314,8 +1329,8 @@ SingleZone:
 				Tw = /*Tupper*/ Tw = Tnew;
 				Tlower = Tinlet;
 				h = height;
-			} 
-			else 
+			}
+			else
 			{
 				// Note that as long as h stays between 0 and height, we don't
 				// adjust Tlower, even if the Tinlet has changed.  This avoids
@@ -1350,7 +1365,7 @@ double waterheater::dhdt(double h)
 	// Pre-set some algebra just for efficiency...
 	const double mdot = water_demand * 60 * RHOWATER / GALPCF;		// lbm/hr...
     const double c1 = RHOWATER * Cp * area * (/*Tupper*/ Tw - Tlower);	// Btu/ft...
-	
+
     // check c1 before dividing by it
     if (c1 <= ROUNDOFF)
         return 0.0; //Possible only when /*Tupper*/ Tw and Tlower are very close, and the difference is negligible
@@ -1396,7 +1411,7 @@ double waterheater::actual_kW(void)
 		double test;
 		if (heat_mode == ELECTRIC) {
 			test = heating_element_capacity * (actual_voltage*actual_voltage) / (nominal_voltage*nominal_voltage);
-		} else { 
+		} else {
 			// @TODO: We don't have a voltage dependence for the heat pump yet...but we should
 			//   Using variables from HPWH project...should be pulled out at some point
 			heating_element_capacity = (1.09 + (1.17 - 1.09) * (get_Tambient(location) - 50) / (70 - 50)) * (0.379 + 0.00364 * Tw);
@@ -1488,7 +1503,7 @@ inline double waterheater::new_h_2zone(double h0, double delta_t)
 	if (fabs(c1) <= ROUNDOFF)
         return height;      // if /*Tupper*/ Tw and Tlower are real close, then the new height is the same as tank height
 //		throw MODEL_NOT_2ZONE;
-		
+
 //	#define CWATER		(0.9994)		// BTU/lb/F
 	double cA;
 	if (heat_mode == HEAT_PUMP) {
@@ -1498,7 +1513,7 @@ inline double waterheater::new_h_2zone(double h0, double delta_t)
 	} else {
 		cA = -mdot / (RHOWATER * area) + (actual_kW()*BTUPHPKW + tank_UA * (get_Tambient(location) - Tlower)) / c1;
 	}
-	// lbm/hr / lb/ft + kW * Btu.h/kW + 
+	// lbm/hr / lb/ft + kW * Btu.h/kW +
 	const double cb = (tank_UA / height) * (/*Tupper*/ Tw - Tlower) / c1;
 
     if (fabs(cb) <= ROUNDOFF)
@@ -1616,10 +1631,10 @@ EXPORT TIMESTAMP plc_waterheater(OBJECT *obj, TIMESTAMP t0)
 
 	waterheater *my = OBJECTDATA(obj,waterheater);
 	my->thermostat(obj->clock, t0);
-	
+
 	// no changes to timestamp will be made by the internal water heater thermostat
 	/// @todo If external plc codes return a timestamp, it will allow sync sooner but not later than water heater time to transition (ticket #147)
-	return TS_NEVER;  
+	return TS_NEVER;
 }
 
 /**@}**/

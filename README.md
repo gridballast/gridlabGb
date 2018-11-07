@@ -10,6 +10,7 @@ Details about how to configure and use the simulator are available in the Jupyte
 
 # Build Instructions
 
+```sh
 git clone https://github.com/gridballast/utilitySimGB
 cd workdir
 git checkout feature/730
@@ -20,3 +21,4 @@ make install
 cp gridlabd.sh install
 chmod +x install/gridlabd.sh
 install/gridlabd.sh --version
+```

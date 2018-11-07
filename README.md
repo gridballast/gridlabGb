@@ -1,12 +1,12 @@
 # utilitySimGB
 
-Source code for the utility scale simulator for the GridBallast load control devices.
+Utility scale simulator for the GridBallast load control devices.
 
 # Installation and Walkthrough
 
-macOS binaries are available on the releases page.
+macOS binaries are available on the [releases page](https://github.com/gridballast/utilitySimGB/releases).
 
-Details about how to configure and use the simulator are available in the Jupyter notebook walkthrough.
+Details about how to configure and use the simulator are available in the [Jupyter notebook walkthrough](https://github.com/gridballast/utilitySimGB/blob/master/controller_usage_demonstration.ipynb).
 
 # Build Instructions
 

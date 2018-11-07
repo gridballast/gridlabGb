@@ -15,7 +15,7 @@ git clone https://github.com/gridballast/utilitySimGB
 cd workdir
 git checkout feature/730
 autoreconf -isf
-./configure --prefix=$PWD/install --enable-silent-rules 'CXXFLAGS=-w -O2' 'CFLAGS=-w -O2' 'LDFLAGS=-w -O2'
+./configure --prefix=$PWD/install --enable-silent-rules
 make
 make install
 cp gridlabd.sh install

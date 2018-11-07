@@ -18,7 +18,7 @@ autoreconf -isf
 ./configure --prefix=$PWD/install --enable-silent-rules
 make
 make install
-cp gridlabd.sh install
+cp ezgridlab.sh install/gridlabd.sh
 chmod +x install/gridlabd.sh
 install/gridlabd.sh --version
 ```

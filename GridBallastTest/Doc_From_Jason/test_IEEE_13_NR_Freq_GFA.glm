@@ -1,0 +1,779 @@
+// $Id: IEEE13-Feb27.glm
+//	Copyright (C) 2011 Battelle Memorial Institute
+
+clock {
+	timezone EST+5EDT;
+	starttime '2000-01-01 0:00:00';
+	stoptime '2000-01-01 0:01:10';
+}
+
+#set suppress_repeat_messages=1
+#set relax_naming_rules=1;
+#set profiler=1
+#set pauseatexit=1
+#define rotor_convergence=0.00000000000001
+#set double_format=%+.12lg
+#set complex_format=%+.12lg%+.12lg%c
+
+//Deltamode declarations - global values
+#set deltamode_timestep=100000000		//100 ms
+#set deltamode_maximumtime=60000000000	//1 minute
+#set deltamode_iteration_limit=10		//Iteration limit
+
+module tape;
+module powerflow {
+	enable_subsecond_models true;
+	deltamode_timestep 10 ms;
+	solver_method NR;
+	all_powerflow_delta true;
+	enable_frequency_dependence true;
+};
+
+module generators {
+	enable_subsecond_models true;
+	deltamode_timestep 10 ms;
+}
+
+//module assert;
+
+//Generator
+//Add a generator
+object diesel_dg {
+    flags DELTAMODE;
+	parent n650;
+	name Gen1;
+	Rated_V 4156; //Line-to-Line value
+	Rated_VA 7000000; // Defaults to 10 MVA
+	power_out_A 10+3j;//75000+25000j;
+	power_out_B 10+3j;//75000+25000j;
+	power_out_C 10+3j;//75000+25000j;
+	Gen_type DYN_SYNCHRONOUS;
+	rotor_speed_convergence ${rotor_convergence};
+	inertia 0.553286;
+	damping 0.0;
+	Ra .006543;
+	Ta 0.05;
+	Xl 0.066;
+	Xd 1.77;
+	Xq 1.052;
+	Xdp 0.128;
+	Xqp 0.2232003883;
+	Xdpp 0.107;
+	Xqpp 0.189;
+	Tdop 1.748986;
+	Tqop 0.448458;
+	Tdopp 0.017013;
+	Tqopp 0.016817;
+	
+	Exciter_type SEXS;
+	TA 0.01;
+	TB 0.02;
+	TC 0.08;	
+    KA 50;
+
+	Governor_type GGOV1;
+	
+	//Toggle low-value-select items
+	GGOV1_Load_Limit_enable false;
+	GGOV1_Acceleration_Limit_enable false;
+	GGOV1_PID_enable true;
+	
+	// //Default properties:
+	GGOV1_R 0.00; // Permanent droop, p.u.
+	GGOV1_Rselect 0; // Feedback signal for droop, = 1 selected electrical power, = 0 none (isochronous governor), = -1 fuel valve stroke ( true stroke),= -2 governor output ( requested stroke)
+	
+	//GGOV1_Rselect 1; // Feedback signal for droop, = 1 selected electrical power, = 0 none (isochronous governor), = -1 fuel valve stroke ( true stroke),= -2 governor output ( requested stroke)
+	GGOV1_Tpelec 1.0; // Electrical power transducer time constant, sec. (>0.)
+	GGOV1_maxerr 0.05;//0.05; // Maximum value for speed error signal
+	GGOV1_minerr -0.05;//-0.05; // Minimum value for speed error signal
+	GGOV1_Kpgov 5.0;// 0.8; // Governor proportional gain
+	GGOV1_Kigov 10.0;// 0.2; // Governor integral gain
+	GGOV1_Kdgov 0.0; // Governor derivative gain
+	GGOV1_Tdgov 1.0; // Governor derivative controller time constant, sec.
+	GGOV1_vmax 1.0;//1.0; // Maximum valve position limit
+	GGOV1_vmin 0.15; // Minimum valve position limit
+	GGOV1_Tact 0.05;//0.5; // Actuator time constant
+	GGOV1_Kturb 1.5; // Turbine gain (>0.)
+	GGOV1_wfnl 0.2;//0.2; // No load fuel flow, p.u
+	GGOV1_Tb 0.01;//0.1; // Turbine lag time constant, sec. (>0.)
+	GGOV1_Tc 0.2; // Turbine lead time constant, sec.
+	GGOV1_Fuel_lag 1; // Switch for fuel source characteristic, = 0 for fuel flow independent of speed, = 1 fuel flow proportional to speed
+	GGOV1_Teng 0.0; // Transport lag time constant for diesel engine
+	GGOV1_Tfload 3.0; // Load Limiter time constant, sec. (>0.)
+	GGOV1_Kpload 2.0; // Load limiter proportional gain for PI controller
+	GGOV1_Kiload 0.67; // Load limiter integral gain for PI controller
+	GGOV1_Ldref 1.0; // Load limiter reference value p.u.
+	GGOV1_Dm 0.0; // Speed sensitivity coefficient, p.u.
+	GGOV1_ropen 050; // Maximum valve opening rate, p.u./sec.
+	GGOV1_rclose -050; // Minimum valve closing rate, p.u./sec.
+	GGOV1_Kimw 0.0;//0.002; // Power controller (reset) gain
+	GGOV1_Pmwset 3.0; // Power controller setpoint, MW
+	GGOV1_aset 0.01; // Acceleration limiter setpoint, p.u./sec.
+	GGOV1_Ka 10.0; // Acceleration limiter Gain
+	GGOV1_Ta 0.1; // Acceleration limiter time constant, sec. (>0.)
+	GGOV1_db 0.0; // Speed governor dead band
+	GGOV1_Tsa 4.0; // Temperature detection lead time constant, sec.
+	GGOV1_Tsb 5.0; // Temperature detection lag time constant, sec.
+	
+	object recorder {
+		property rotor_speed,rotor_angle,flux1d,flux2q,EpRotated,VintRotated,Eint_A,Eint_B,Eint_C,Irotated,pwr_electric.real,pwr_electric.imag,pwr_mech,torque_mech,torque_elec;
+		flags DELTAMODE;
+		//interval -1;
+		interval 1;
+		file "Gen_1_Speed.csv";
+	};
+}
+
+// Phase Conductor for 601: 556,500 26/7 ACSR
+object overhead_line_conductor {
+	name olc6010;
+	geometric_mean_radius 0.031300;
+	diameter 0.927 in;
+	resistance 0.185900;
+}
+
+// Phase Conductor for 602: 4/0 6/1 ACSR
+object overhead_line_conductor {
+	name olc6020;
+	geometric_mean_radius 0.00814;
+	diameter 0.56 in;
+	resistance 0.592000;
+}
+
+// Phase Conductor for 603, 604, 605: 1/0 ACSR
+object overhead_line_conductor {
+	name olc6030;
+	geometric_mean_radius 0.004460;
+	diameter 0.4 in;
+	resistance 1.120000;
+}
+
+
+// Phase Conductor for 606: 250,000 AA,CN
+object underground_line_conductor { 
+	name ulc6060;
+	outer_diameter 1.290000;
+	conductor_gmr 0.017100;
+	conductor_diameter 0.567000;
+	conductor_resistance 0.410000;
+	neutral_gmr 0.0020800; 
+	neutral_resistance 14.87200;  
+	neutral_diameter 0.0640837;
+	neutral_strands 13.000000;
+	insulation_relative_permitivitty 2.3;
+	shield_gmr 0.000000;
+	shield_resistance 0.000000;
+}
+
+// Phase Conductor for 607: 1/0 AA,TS N: 1/0 Cu
+object underground_line_conductor { 
+	name ulc6070;
+	outer_diameter 1.060000;
+	conductor_gmr 0.011100;
+	conductor_diameter 0.368000;
+	conductor_resistance 0.970000;
+	neutral_gmr 0.011100;
+	neutral_resistance 0.970000; // Unsure whether this is correct
+	neutral_diameter 0.0640837;
+	neutral_strands 6.000000;
+	insulation_relative_permitivitty 2.3;
+	shield_gmr 0.000000;
+	shield_resistance 0.000000;
+}
+
+// Overhead line configurations
+object line_spacing {
+	name ls500601;
+	distance_AB 2.5;
+	distance_AC 4.5;
+	distance_BC 7.0;
+	distance_BN 5.656854;
+	distance_AN 4.272002;
+	distance_CN 5.0;
+	distance_AE 28.0;
+	distance_BE 28.0;
+	distance_CE 28.0;
+	distance_NE 24.0;
+}
+
+// Overhead line configurations
+object line_spacing {
+	name ls500602;
+	distance_AC 2.5;
+	distance_AB 4.5;
+	distance_BC 7.0;
+	distance_CN 5.656854;
+	distance_AN 4.272002;
+	distance_BN 5.0;
+	distance_AE 28.0;
+	distance_BE 28.0;
+	distance_CE 28.0;
+	distance_NE 24.0;
+}
+
+object line_spacing {
+	name ls505603;
+	distance_BC 7.0;
+	distance_CN 5.656854;
+	distance_BN 5.0;
+	distance_BE 28.0;
+	distance_CE 28.0;
+	distance_NE 24.0;
+}
+
+object line_spacing {
+	name ls505604;
+	distance_AC 7.0;
+	distance_AN 5.656854;
+	distance_CN 5.0;
+	distance_AE 28.0;
+	distance_CE 28.0;
+	distance_NE 24.0;
+}
+
+object line_spacing {
+	name ls510;
+	distance_CN 5.0;
+	distance_CE 28.0;
+	distance_NE 24.0;
+}
+
+object line_configuration {
+	name lc601;
+	conductor_A olc6010;
+	conductor_B olc6010;
+	conductor_C olc6010;
+	conductor_N olc6020;
+	spacing ls500601;
+}
+
+object line_configuration {
+	name lc602;
+	conductor_A olc6020;
+	conductor_B olc6020;
+	conductor_C olc6020;
+	conductor_N olc6020;
+	spacing ls500602;
+}
+
+object line_configuration {
+	name lc603;
+	conductor_B olc6030;
+	conductor_C olc6030;
+	conductor_N olc6030;
+	spacing ls505603;
+}
+
+object line_configuration {
+	name lc604;
+	conductor_A olc6030;
+	conductor_C olc6030;
+	conductor_N olc6030;
+	spacing ls505604;
+}
+
+object line_configuration {
+	name lc605;
+	conductor_C olc6030;
+	conductor_N olc6030;
+	spacing ls510;
+}
+
+//Underground line configuration
+object line_spacing {
+	name ls515;
+	distance_AB 0.500000;
+	distance_BC 0.500000;
+	distance_AC 1.000000;
+}
+
+object line_spacing {
+	name ls520;
+	distance_AN 0.083333;
+}
+
+object line_configuration {
+	name lc606;
+	conductor_A ulc6060;
+	conductor_B ulc6060;
+	conductor_C ulc6060;
+	spacing ls515;
+}
+
+object line_configuration {
+	name lc607;
+	conductor_A ulc6070;
+	conductor_N ulc6070;
+	spacing ls520;
+}
+
+//Toss in some triplex, for good measure
+//Added triplex
+object transformer_configuration {
+	name trip_trans_config;
+	connect_type SINGLE_PHASE_CENTER_TAPPED;
+	install_type POLETOP;
+	shunt_impedance 10000+10000j;
+	primary_voltage 2401.777;
+	secondary_voltage 120;
+	powerB_rating 110 kVA;
+	impedance 0.00033+0.0022j;
+}
+
+object triplex_line_conductor {
+	name triplinecond;
+	resistance 0.97;
+	geometric_mean_radius 0.01111;
+}
+
+object triplex_line_configuration {
+	name trip_line_config;
+	conductor_1 triplinecond;
+	conductor_2 triplinecond;
+	conductor_N triplinecond;
+	insulation_thickness 0.08;
+	diameter 0.368;
+}
+
+object transformer {
+	name trip_transformer;
+	phases BS;
+	from n680;
+	to tripnode1;
+	configuration trip_trans_config;
+}
+
+object triplex_line {
+	phases BS;
+	name trip_node_to_node;
+	from tripnode1;
+	to tripnode2;
+	configuration trip_line_config;
+	length 25.0 ft;
+}
+
+object triplex_line {
+	phases BS;
+	name trip_node_to_meter;
+	from tripnode1;
+	to tripmeter1;
+	configuration trip_line_config;
+	length 25.0 ft;
+}
+
+object triplex_line {
+	phases BS;
+	name trip_node_to_load;
+	from tripnode1;
+	to tripload1;
+	configuration trip_line_config;
+	length 25.0 ft;
+}
+
+//object triplex_node {
+object triplex_meter {
+	name tripnode1;
+	phases BS;
+	frequency_measure_type PLL;
+	nominal_voltage 120.0;
+	object recorder {
+		flags DELTAMODE;
+		property "measured_frequency";
+		interval 1;
+		file triplex_main_node_freq.csv;
+	};
+	object recorder {
+		flags DELTAMODE;
+		interval 1;
+		property measured_power;
+		file triplex_main_power.csv;
+	};
+}
+
+object triplex_node {
+	name tripnode2;
+	phases BS;
+	frequency_measure_type PLL;
+	nominal_voltage 120.0;
+	object recorder {
+		flags DELTAMODE;
+		property "measured_frequency";
+		interval 1;
+		file triplex_second_node_freq.csv;
+	};
+}
+
+object triplex_meter {
+	name tripmeter1;
+	phases BS;
+	frequency_measure_type PLL;
+	nominal_voltage 120.0;
+	object recorder {
+		flags DELTAMODE;
+		property "measured_frequency";
+		interval 1;
+		file triplex_meter_freq.csv;
+	};
+}
+
+object triplex_load {
+	name tripload1;
+	phases BS;
+	constant_power_12 500.0+120.0j;
+	frequency_measure_type PLL;
+	GFA_enable true;
+	GFA_freq_low_trip 59.98 Hz;
+	GFA_freq_disconnect_time 0.3 s;
+	GFA_reconnect_time 2.0 s;
+
+	nominal_voltage 120.0;
+	object recorder {
+		flags DELTAMODE;
+		property "GFA_status,measured_frequency,voltage_1.real,voltage_1.imag,voltage_2.real,voltage_2.imag";
+		interval 1;
+		file triplex_load_freq.csv;
+	};
+}
+
+
+// Define line objects
+object overhead_line {
+	phases "BCN";
+	name line_632-645;
+	from n632;
+	to l645;
+	length 500;
+	configuration lc603;
+}
+
+object overhead_line {
+	phases "BCN";
+	name line_645-646;
+    from l645;
+	to l646;
+	length 300;
+	configuration lc603;
+}
+
+object overhead_line { //630632 {
+	phases "ABCN";
+	name line_630-632;
+	from n630;
+	to n632;
+	length 2000;
+	configuration lc601;
+}
+
+//Split line for distributed load
+object overhead_line { //6326321 {
+	phases "ABCN";
+	name line_632-6321;
+	from n632;
+	to l6321;
+	length 500;
+	configuration lc601;
+}
+
+object overhead_line { //6321671 {
+	phases "ABCN";
+	name line_6321-671;
+    from l6321;
+	to l671;
+	length 1500;
+	configuration lc601;
+}
+//End split line
+
+object overhead_line { //671680 {
+	phases "ABCN";
+	name line_671-680;
+    from l671;
+	to n680;
+	length 1000;
+	configuration lc601;
+}
+
+object overhead_line { //671684 {
+	phases "ACN";
+	name line_671-684;
+    from l671;
+	to n684;
+	length 300;
+	configuration lc604;
+}
+
+ object overhead_line { //684611 {
+	phases "CN";
+	name line_684-611;
+	from n684;
+	to l611;
+	length 300;
+	configuration lc605;
+}
+
+object underground_line { //684652 {
+	phases "AN";
+	name line_684-652;
+	from n684;
+	to l652;
+	length 800;
+	configuration lc607;
+}
+
+object underground_line { //692675 {
+	phases "ABC";
+	name line_692-675;
+    from l692;
+	to l675;
+	length 500;
+	configuration lc606;
+}
+
+object overhead_line { //632633 {
+	phases "ABCN";
+	name line_632-633;
+	from n632;
+	to n633;
+	length 500;
+	configuration lc602;
+}
+
+// Create node objects
+object node { //633 {
+	name n633;
+	phases "ABCN";
+	nominal_voltage 2401.7771;
+}
+
+object node { //630 {
+	name n630;
+	phases "ABCN";
+	frequency_measure_type PLL;
+	nominal_voltage 2401.7771;
+	object recorder {
+		flags DELTAMODE;
+		property "measured_frequency";
+		interval 1;
+		file node_n630_freq.csv;
+	};
+}
+ 
+object node { //632 {
+	name n632;
+	phases "ABCN";
+	nominal_voltage 2401.7771;
+}
+
+object node { //650 {
+	name n650;
+	phases "ABCN";
+	bustype SWING;
+	voltage_A 2401.7771;
+	voltage_B -1200.8886-2080.000j;
+	voltage_C -1200.8886+2080.000j;
+	nominal_voltage 2401.7771;
+	frequency_measure_type PLL;
+	object recorder {
+		flags DELTAMODE;
+		property "measured_frequency";
+		interval 1;
+		file swing_node_freq.csv;
+	};
+} 
+ 
+object node { //680 {
+	name n680;
+	phases "ABCN";
+	nominal_voltage 2401.7771;
+}
+ 
+ 
+object node { //684 {
+	name n684;
+	phases "ACN";
+	nominal_voltage 2401.7771;
+} 
+ 
+// Create load objects 
+object load { //634 {
+	name l634;
+	phases "ABCN";
+	constant_power_A 160000+110000j;
+	constant_power_B 120000+90000j;
+	constant_power_C 120000+90000j;
+	nominal_voltage 480.000;
+	object player {
+		property constant_power_A;
+		flags DELTAMODE;
+		file data_load_power_A.player;
+	};
+	object player {
+		property constant_power_B;
+		flags DELTAMODE;
+		file data_load_power_B.player;
+	};
+	object player {
+		property constant_power_C;
+		flags DELTAMODE;
+		file data_load_power_C.player;
+	};
+}
+ 
+object load { //645 {
+	name l645;
+	phases "BCN";
+	constant_power_B 170000+125000j;
+	nominal_voltage 2401.7771;
+}
+ 
+object load { //646 {
+	name l646;
+	phases "BCD";
+	constant_impedance_B 56.5993+32.4831j;
+	nominal_voltage 2401.7771;
+}
+ 
+ 
+object load { //652 {
+	name l652;
+	phases "AN";
+	constant_impedance_A 31.0501+20.8618j;
+	nominal_voltage 2401.7771;
+}
+ 
+object load { //671 {
+	name l671;
+	phases "ABCD";
+	constant_power_A 385000+220000j;
+	constant_power_B 385000+220000j;
+	constant_power_C 385000+220000j;
+	nominal_voltage 2401.7771;
+	frequency_measure_type PLL;
+	GFA_enable true;
+	GFA_freq_low_trip 59.97 Hz;
+	GFA_freq_disconnect_time 0.5 s;
+	GFA_reconnect_time 2.0 s;
+	object recorder {
+		flags DELTAMODE;
+		property "GFA_status,measured_frequency,voltage_A.real,voltage_A.imag,voltage_B.real,voltage_B.imag,voltage_C.real,voltage_C.imag";
+		interval 1;
+		file load_l671_freq.csv;
+	};
+}
+ 
+object load { //675 {
+	name l675;
+	phases "ABC";
+	constant_power_A 485000+190000j;
+	constant_power_B 68000+60000j;
+	constant_power_C 290000+212000j;
+	constant_impedance_A 0.00-28.8427j;		//Shunt Capacitors
+	constant_impedance_B 0.00-28.8427j;
+	constant_impedance_C 0.00-28.8427j;
+	nominal_voltage 2401.7771;
+}
+ 
+object load { //692 {
+	name l692;
+	phases "ABCD";
+	constant_current_A 0+0j;
+	constant_current_B 0+0j;
+	constant_current_C -17.2414+51.8677j;
+	nominal_voltage 2401.7771;
+}
+ 
+object load { //611 {
+	name l611;
+	phases "CN";
+	constant_current_C -6.5443+77.9524j;
+	constant_impedance_C 0.00-57.6854j;	  //Shunt Capacitor
+	nominal_voltage 2401.7771;
+}
+ 
+// distributed load between node 632 and 671
+// 2/3 of load 1/4 of length down line: Kersting p.56
+object load { //6711 {
+	name l6711;
+	parent l671;
+	phases "ABC";
+	constant_power_A 5666.6667+3333.3333j;
+	constant_power_B 22000+12666.6667j;
+	constant_power_C 39000+22666.6667j;
+	nominal_voltage 2401.7771;
+}
+
+object load { //6321 {
+	name l6321;
+	phases "ABCN";
+	constant_power_A 11333.333+6666.6667j;
+	constant_power_B 44000+25333.3333j;
+	constant_power_C 78000+45333.3333j;
+	nominal_voltage 2401.7771;
+}
+ 
+
+ 
+// Switch
+object switch {
+	phases "ABCN";
+	name switch_671-692;
+    from l671;
+	to l692;
+	status CLOSED;
+}
+ 
+// Transformer
+object transformer_configuration {
+	name tc400;
+	connect_type WYE_WYE;
+  	install_type PADMOUNT;
+  	power_rating 500;
+  	primary_voltage 4160;
+  	secondary_voltage 480;
+  	resistance 0.011;
+  	reactance 0.02;
+}
+  
+object transformer {
+  	phases "ABCN";
+  	name transformer_633-634;
+  	from n633;
+  	to l634;
+  	configuration tc400;
+}
+  
+ 
+// Regulator
+object regulator_configuration {
+	name regconfig6506321;
+	connect_type 1;
+	band_center 122.000;
+	band_width 2.0;
+	time_delay 30.0;
+	raise_taps 16;
+	lower_taps 16;
+	current_transducer_ratio 700;
+	power_transducer_ratio 20;
+	compensator_r_setting_A 3.0;
+	compensator_r_setting_B 3.0;
+	compensator_r_setting_C 3.0;
+	compensator_x_setting_A 9.0;
+	compensator_x_setting_B 9.0;
+	compensator_x_setting_C 9.0;
+	CT_phase "ABC";
+	PT_phase "ABC";
+	regulation 0.10;
+	Control MANUAL;
+	Type A;
+	tap_pos_A 10;
+	tap_pos_B 8;
+	tap_pos_C 11;
+}
+  
+object regulator {
+	name fregn650n630;
+	phases "ABC";
+	from n650;
+	to n630;
+	configuration regconfig6506321;
+}

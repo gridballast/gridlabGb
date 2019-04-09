@@ -19,15 +19,16 @@ EXPORT STATUS postupdate_diesel_dg(OBJECT *obj, complex *useful_value, unsigned 
 
 //AVR state variable structure
 typedef struct {
-	double vset;			//p.u. voltage set point
 	double bias;			//Bias term of avr
 	double xe;				//State variable
 	double xb;				//State variable for transient gain reduction
+
+	double xfd; 			// State variable for PI control of the Q constant mode
+
 } AVR_VARS;
 
 //GOV_DEGOV1 state variable structure
 typedef struct {
-	double wref;			//Current reference frequency (p.u.)
 	double x1;				//Electric box state variable
 	double x2;				//Electric box state variable
 	double x4;				//Actuator state variable
@@ -39,7 +40,6 @@ typedef struct {
 // gastflag
 //GOV_GAST state variable structure
 typedef struct {
-	double wref;			//Current reference frequency (p.u.)
 	double x1;				//Electric box state variable 
 	double x2;				//Electric box state variable
 	double x3;				//Temp limiter state variable
@@ -48,8 +48,6 @@ typedef struct {
 
 //GGOV1 state variable structure
 typedef struct {
-	double wref;
-	double Pref;
 	double werror;
 	double x1;
 	double x2;
@@ -87,6 +85,9 @@ typedef struct {
 	double err7;
 	double LowValSelect1;
 	double LowValSelect;
+
+	double x_Pconstant;		// state varibale of Pconstant mode in GGOV1
+
 } GOV_GGOV1_VARS;
 
 //Machine state variable structure
@@ -110,6 +111,14 @@ typedef struct {
 	AVR_VARS avr;				//Automatic Voltage Regulator state variables
 } MAC_STATES;
 
+//Set-point/adjustable variables
+typedef struct {
+	double wref;	//Reference frequency/bias for generator object (governor)
+	double vset;	//Reference per-unit voltage/bias for generator object (AVR)
+	double Pref;	//Reference real power output/bias (per-unit) for generator object (governor)
+	double Qref;	//Reference reactive power output/bias (per-unit) for generator object (AVR)
+} MAC_INPUTS;
+
 class diesel_dg : public gld_object
 {
 private:
@@ -118,14 +127,13 @@ private:
 	complex *pLine_I; ///< pointer to the three current on three lines
 
 	bool first_run;		///< Flag for first run of the diesel_dg object - eliminates t0==0 dependence
+	bool is_isochronous_gen;	///< Flag to indicate if we're isochronous, mostly to help keep us in deltamode
 
 	//Internal synchronous machine variables
 	complex *bus_admittance_mat;		//Link to bus raw self-admittance value - grants 3x3 access instead of diagonal
 	complex *full_bus_admittance_mat;	//Link to bus full self-admittance of Ybus form
 	complex *PGenerated;				//Link to bus PGenerated field - mainly used for SWING generator
 	complex *IGenerated;				//Link to direct current injections to powerflow at bus-level
-	complex *FreqPower;					//Link to bus "frequency-power weighted" accumulation
-	complex *TotalPower;				//Link to bus "accumulated power" - used for nominal frequency calculation
 	complex generator_admittance[3][3];	//Generator admittance matrix converted from sequence values
 	double power_base;					//Per-phase basis (divide by 3)
 	double voltage_base;				//Voltage p.u. base for analysis (converted from delta)
@@ -145,6 +153,7 @@ private:
 	unsigned int x5a_delayed_write_pos;//Indexing variable for writing the torque_delay_buffer
 	unsigned int x5a_delayed_read_pos;	//Indexing variable for reading torque_delay_buffer
 	double prev_rotor_speed_val;		//Previous value of rotor speed - used for delta-exiting convergence check
+	double prev_voltage_val[3];			//Previous value of voltage magnitude - used for delta-exiting convergence check
 	complex last_power_output[3];		//Tracking variable for previous power output - used to do super-second frequency adjustments
 	TIMESTAMP prev_time;				//Tracking variable for previous "new time" run
 	double prev_time_dbl;				//Tracking variable for previous "new time" run -- deltamode capable
@@ -172,7 +181,7 @@ public:
 	enum {NO_EXC=1, SEXS};
 	enumeration Exciter_type;
 	//gastflag
-	enum {NO_GOV=1, DEGOV1=2, GAST=3, GGOV1_OLD=4, GGOV1=5};
+	enum {NO_GOV=1, DEGOV1=2, GAST=3, GGOV1_OLD=4, GGOV1=5, P_CONSTANT=6};
 	enumeration Governor_type;
 
 	//Enable/Disable low-value select blocks
@@ -256,6 +265,11 @@ public:
 
 	//Convergence criteria (ion right now)
 	double rotor_speed_convergence_criterion;
+	double voltage_convergence_criterion;
+
+	//Which convergence to apply
+	bool apply_rotor_speed_convergence;
+	bool apply_voltage_mag_convergence;
 
 	//Dynamics-capable synchronous generator inputs
 	double omega_ref;		//Nominal frequency
@@ -279,6 +293,8 @@ public:
 	complex X0;				//Zero sequence impedance (p.u.)
 	complex X2;				//Negative sequence impedance (p.u.)
 
+	MAC_INPUTS gen_base_set_vals;	//Base set points for the various control objects
+
 	//AVR properties (Simplified Exciter System (SEXS) - Industry acronym, I swear)
 	double exc_KA;				//Exciter gain (p.u.)
 	double exc_TA;				//Exciter time constant (seconds)
@@ -286,6 +302,14 @@ public:
 	double exc_TC;				//Exciter transient gain reduction time constant (seconds)
 	double exc_EMAX;			//Exciter upper limit (p.u.)
 	double exc_EMIN;			//Exciter lower limit (p.u.)
+
+	double ki_Pconstant;		// ki for the PI controller implemented in P constant delta mode
+	double kp_Pconstant;		// kp for the PI controller implemented in P constant delta mode
+
+	bool P_constant_mode; 		// Flag indicating whether P constant mode is imployed
+	bool Q_constant_mode;       // Flag indicating whether Q constant mode is imployed
+	double ki_Qconstant;		// ki for the PI controller implemented in Q constant delta mode
+	double kp_Qconstant;		// kp for the PI controller implemented in Q constant delta mode
 	
 	//Governor properties (DEGOV1)
 	double gov_degov1_R;				//Governor droop constant (p.u.)
@@ -372,6 +396,8 @@ public:
 	STATUS apply_dynamics(MAC_STATES *curr_time, MAC_STATES *curr_delta, double deltaT);
 	STATUS init_dynamics(MAC_STATES *curr_time);
 	complex complex_exp(double angle);
+
+	friend class controller_dg;
 
 #ifdef OPTIONAL
 	static CLASS *pclass; /**< defines the parent class */

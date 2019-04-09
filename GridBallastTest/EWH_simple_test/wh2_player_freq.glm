@@ -1,0 +1,108 @@
+// Examples: water heater
+
+#define INTERVAL=1
+clock {
+    timezone EST5;
+    starttime '2012-01-01 00:00:00';
+    stoptime '2012-01-02 00:00:00';
+};
+
+schedule daily_use {
+     * 0 * * * 0.00;
+     * 1 * * * 0.00;
+     * 2 * * * 0.00;
+    0-9 3 * * * 0.14;
+    10-19 3 * * * 0.15;
+    20-29 3 * * * 0.50;
+    30-39 3 * * * 0.97;
+    40-49 3 * * * 0.00;
+    50-59 3 * * * 0.00;
+     * 4 * * * 0.00;
+     * 5 * * * 0.00;
+     0-9 6 * * * 0.00;
+     10-19 6 * * * 0.00;
+     20-29 6 * * * 0.00;
+     30-39 6 * * * 0.47;
+     40-49 6 * * * 0.00;
+     50-59 6 * * * 0.00;
+     * 7 * * * 0.00;
+     0-9 8 * * * 0.00;
+     10-19 8 * * * 0.00;
+     20-29 8 * * * 0.00;
+     30-39 8 * * * 1.14;
+     40-49 8 * * * 1.14;
+     50-59 8 * * * 1.14;
+     * 9 * * * 0.00;
+     * 10 * * * 0.00;
+     * 11 * * * 0.00;
+     * 12 * * * 0.00;
+     * 13 * * * 0.00;
+     * 14 * * * 0.00;
+     0-9 15 * * * 0.00;
+     10-19 15 * * * 0.00;
+     20-29 15 * * * 0.00;
+     30-39 15 * * * 0.00;
+     40-49 15 * * * 0.30;
+     50-59 15 * * * 0.60;
+     * 16 * * * 0.00;
+     * 17 * * * 0.00;
+     0-9 18 * * * 0.00;
+     10-19 18 * * * 0.12;
+     20-29 18 * * * 0.00;
+     30-39 18 * * * 0.00;
+     40-49 18 * * * 0.00;
+     50-59 18 * * * 0.00;
+     0-9 19 * * * 0.70;
+     10-19 19 * * * 0.70;
+     20-29 19 * * * 0.00;
+     30-39 19 * * * 0.00;
+     40-49 19 * * * 0.00;
+     50-59 19 * * * 0.00;
+     * 20 * * * 0.00;
+     * 21 * * * 0.00;
+     * 22 * * * 0.00;
+     * 23 * * * 0.00;
+}
+
+
+module tape;
+module residential {
+    enable_subsecond_models true;
+}
+module powerflow;
+object triplex_meter {
+    phases AS;
+    nominal_voltage 120 V;
+
+    object house {
+        object waterheater {
+            name wh2;
+            tank_volume 100;
+            tank_UA 2;
+            tank_diameter 2.12;
+            heating_element_capacity 5.6;
+            inlet_water_temperature 50;
+            water_demand daily_use*1;
+            heat_mode ELECTRIC;
+            location INSIDE;
+            tank_setpoint 130;
+            thermostat_deadband 1.5;
+            temperature 131;
+            object player {
+                file frequency.PLAYER;
+                property measured_frequency;
+            };  
+            height 3.87;
+            demand 0;
+            actual_load 2;
+            previous_load 1;
+            object recorder {
+                // in '2012-04-01 00:00:00';
+                // out '2012-05-01 00:00:00';
+                property inlet_water_temperature,measured_frequency,temperature,actual_load,actual_power,is_waterheater_on,gas_fan_power,gas_standby_power,energy,power,peak_demand,heatgain,power_state;
+                interval ${INTERVAL};
+                file "waterheater-${INTERVAL}.csv";
+            };
+        };
+    };
+}

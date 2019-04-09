@@ -475,6 +475,7 @@ void underground_line::recalc(void)
 						Z(i, j) = Z_DIST(i, j);
 				}
 			}	
+			#undef Z_GMR_S	//Make the compiler happy
 		 } else {
                 // see example: 4.4
                 #define Z_GMR(i) (GMR(i) == 0.0 ? complex(0.0) : complex(freq_coeff_real + RES(i), freq_coeff_imag * (log(1.0 / GMR(i)) + freq_additive_term))) 
@@ -1057,7 +1058,7 @@ void underground_line::test_phases(line_configuration *config, const char ph)
 	{
 		if (config->impedance11 == 0.0)
 		{
-			condCheck = (config->phaseA_conductor && !gl_object_isa(config->phaseA_conductor, "underground_line_conductor"));
+			condCheck = (config->phaseA_conductor && !gl_object_isa(config->phaseA_conductor, "underground_line_conductor","powerflow"));
 			condNotPres = ((!config->phaseA_conductor) && has_phase(PHASE_A));
 		}
 		else
@@ -1070,7 +1071,7 @@ void underground_line::test_phases(line_configuration *config, const char ph)
 	{
 		if (config->impedance22 == 0.0)
 		{
-			condCheck = (config->phaseB_conductor && !gl_object_isa(config->phaseB_conductor, "underground_line_conductor"));
+			condCheck = (config->phaseB_conductor && !gl_object_isa(config->phaseB_conductor, "underground_line_conductor","powerflow"));
 			condNotPres = ((!config->phaseB_conductor) && has_phase(PHASE_B));
 		}
 		else
@@ -1083,7 +1084,7 @@ void underground_line::test_phases(line_configuration *config, const char ph)
 	{
 		if (config->impedance33 == 0.0)
 		{
-			condCheck = (config->phaseC_conductor && !gl_object_isa(config->phaseC_conductor, "underground_line_conductor"));
+			condCheck = (config->phaseC_conductor && !gl_object_isa(config->phaseC_conductor, "underground_line_conductor","powerflow"));
 			condNotPres = ((!config->phaseC_conductor) && has_phase(PHASE_C));
 		}
 		else
@@ -1096,7 +1097,7 @@ void underground_line::test_phases(line_configuration *config, const char ph)
 	{
 		if (config->impedance11 == 0.0 && config->impedance22 == 0.0 && config->impedance33 == 0.0)
 		{
-			condCheck = (config->phaseN_conductor && !gl_object_isa(config->phaseN_conductor, "underground_line_conductor"));
+			condCheck = (config->phaseN_conductor && !gl_object_isa(config->phaseN_conductor, "underground_line_conductor","powerflow"));
 			condNotPres = ((!config->phaseN_conductor) && has_phase(PHASE_N));
 		}
 		else

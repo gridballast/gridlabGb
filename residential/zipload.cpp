@@ -81,8 +81,25 @@ ZIPload::ZIPload(MODULE *module) : residential_enduse(module)
 			PT_double,"recovery_duty_cycle[pu]",PADDR(recovery_duty_cycle),PT_DESCRIPTION, "fraction of time in the on state, while in recovery interval",
 			PT_double,"period[h]",PADDR(period),PT_DESCRIPTION, "time interval to apply duty cycle",
 			PT_double,"phase[pu]",PADDR(phase),PT_DESCRIPTION, "initial phase of load; duty will be assumed to occur at beginning of period",
-			NULL)<1) 
 
+			// frequency variables
+			PT_double,"measured_frequency[Hz]", PADDR(measured_frequency), PT_DESCRIPTION, "frequency measurement - average of present phases",
+			PT_bool, "enable_freq_control", PADDR(enable_freq_control), PT_DESCRIPTION, "Disable/Enable GridBallast controller based on Grid Frequency",
+			PT_double,"freq_lowlimit[Hz]", PADDR(freq_lowlimit), PT_DESCRIPTION, "lower frequency limit for GridBallast control",
+			PT_double,"freq_uplimit[Hz]", PADDR(freq_uplimit), PT_DESCRIPTION, "higher frequency limit for GridBallast control",
+			// voltage variables
+			PT_double, "measured_voltage[V]", PADDR(measured_voltage),PT_DESCRIPTION,"measured voltage from the circuit",
+			PT_bool, "enable_volt_control", PADDR(enable_volt_control), PT_DESCRIPTION, "Disable/Enable GridBallast controller based on Grid Voltage",
+			PT_double,"volt_lowlimit[Hz]", PADDR(volt_lowlimit), PT_DESCRIPTION, "lower voltage limit for GridBallast control",
+			PT_double,"volt_uplimit[Hz]", PADDR(volt_uplimit), PT_DESCRIPTION, "higher voltage limit for GridBallast control",
+			// jitter variables
+			PT_double,"average_delay_time[s]", PADDR(average_delay_time), PT_DESCRIPTION, "average delay time for the jitter in seconds",
+			// lock mode
+			PT_int16, "enable_lock", PADDR(enable_lock), PT_DESCRIPTION, "Enable(1)/Disable(0) lock mode for the GridBallast controller",
+			PT_int16, "lock_STATUS", PADDR(lock_STATUS), PT_DESCRIPTION, "True(1)/False(0) of the lock status once the lock is enabled",
+			// controller priority
+			PT_int16, "controller_priority", PADDR(controller_priority), PT_DESCRIPTION, "We have four controllers, a-lock mode controller;b-frequency controller; c-voltage controller; d-thermostat controller(optional), a four-digit integer is used to indicate the priority of the controllers, e.g, 4312, a>b>d>c",
+			NULL)<1) 
 			GL_THROW("unable to publish properties in %s",__FILE__);
 	}
 }
@@ -116,6 +133,42 @@ int ZIPload::create()
 	duty_cycle = recovery_duty_cycle = -1;
 	period = 0;
 	phase = 0;
+
+	// initialize controller related variables
+
+	// lock variables
+	enable_lock = 0;
+	lock_STATUS = 0;
+
+	// frequency and voltage controllers
+	enable_freq_control = false;
+	measured_frequency = 60;
+	freq_lowlimit = 59.95;
+	freq_uplimit = 60.05;
+
+	enable_volt_control = false;
+	measured_voltage = 120;
+	volt_lowlimit = 119.1;
+	volt_uplimit = 121.1; // a slightly higher value
+
+	prev_status = true;
+	circuit_status = false;
+	temp_status = false;
+
+	// initialize jitter related variables
+	average_delay_time = 0;				// 0 s, average delay time during frequency violation
+
+	freq_jitter_counter = 0; 				// start with 0, initilize using Poisson Process after event triggered
+	freq_circuit_status_after_delay = false;
+	freq_jitter_toggler = false;
+
+	volt_jitter_counter = 0; 				// start with 0, initilize using Poisson Process after event triggered
+	volt_circuit_status_after_delay = false;
+	volt_jitter_toggler = false;
+
+	// controller priority
+	controller_priority = 4321;		// by default, lock mode controller > freq > volt > thermostat
+	status_confirmed = false;
 
 	//Default values of other properties
 	power_pf = current_pf = impedance_pf = 1.0;
@@ -319,6 +372,19 @@ int ZIPload::init(OBJECT *parent)
 
 	load.breaker_amps = breaker_val;
 
+	// set paras for the controller
+	gbcontroller.set_parameters(freq_lowlimit,freq_uplimit,volt_lowlimit,volt_uplimit,0,0);
+
+	/* initialize controller priority */
+	controller_array.clear();
+	controller_array.push_back(std::make_pair(controller_priority/1000,1));
+	controller_array.push_back(std::make_pair((controller_priority%1000)/100,2));
+	controller_array.push_back(std::make_pair((controller_priority%100)/10,3));
+	controller_array.push_back(std::make_pair(controller_priority%10,4));
+
+	// sort the controller along with the index, accessing index using controller_array[3].second
+	sort(controller_array.begin(), controller_array.end());
+
 	return residential_enduse::init(parent);
 }
 
@@ -327,14 +393,160 @@ int ZIPload::isa(char *classname)
 	return (strcmp(classname,"ZIPload")==0 || residential_enduse::isa(classname));
 }
 
+bool ZIPload::get_status(int controller_number){
+	// at the beginning, status_confirmed is false, once it is true, the status is confirmed
+	// be default, the temp_status remains to be the previous status if no controller is trying to change the status
+	temp_status = circuit_status;
+	switch(controller_number){
+	case 1:
+		// lock mode controller
+		if (enable_lock==1) {
+			temp_status = gbcontroller.lock_mode_controller(circuit_status, enable_lock==1, lock_STATUS==1);
+			status_confirmed = true;
+		}
+		// do nothing if the mode is not enabled
+		break;
+	case 2:
+		// frequency controller with jitter
+		if (enable_freq_control){
+			if (average_delay_time==0){
+				// no jitter
+				temp_status = gbcontroller.frequency_controller(circuit_status, measured_frequency);
+				status_confirmed = true;
+			} else {
+				static bool freq_first = true;
+				if (!freq_jitter_toggler){
+					// jitter hasn't been activated (no violation happened)
+					if( (freq_jitter_counter == 0) && gbcontroller.check_freq_violation(measured_frequency)){
+						// keep track of the first time jitter is triggered
+						if (freq_first){
+							freq_first = false;
+						}
+						// as we detect the frequency violation, we initialize jitter_counter, let circuit_status_after_delay=temp_status
+						freq_circuit_status_after_delay = gbcontroller.frequency_controller(circuit_status, measured_frequency);
+						// only start jitter_counter when the frequency violation happened
+						freq_jitter_counter = (int) (gl_random_uniform(RNGSTATE,1, 2*average_delay_time) + 0.5);
+						//						gl_output("we are using jitter! jitter_counter:%d",jitter_counter);
+						// jitter has been activated, starting counting down
+						freq_jitter_toggler = true;
+						//gl_output("jitter_counter:%d",jitter_counter);
+					}
+				} else if (freq_jitter_toggler){
+					// jitter_toggler mode, wait to deply jitter status after jitter_counter times
+					if (!freq_first && (freq_jitter_counter == 0)){
+						// not the first time that jitter is triggered and jitter_counter == 0,
+						// let the status be the circuit_status_after_delay
+						temp_status = freq_circuit_status_after_delay;
+						freq_jitter_toggler = false;
+						status_confirmed = true;
+					} else if (freq_jitter_counter > 0) {
+						// if jitter_counter >0,  we subtract 1
+						freq_jitter_counter -= 1;
+//						gl_output("we are inside counter deduct! jitter_counter:%d, circuit_status:%d",freq_jitter_counter,circuit_status);
+					}
+				}
+			}
+		}
+		// do nothing is mode is not enabled
+		break;
+	case 3:
+		// voltage controller with jitter
+		if (enable_volt_control){
+			if (average_delay_time==0){
+				// no jitter
+				temp_status = gbcontroller.voltage_controller(circuit_status, measured_voltage);
+				status_confirmed = true;
+			} else {
+				static bool volt_first = true;
+				if (!volt_jitter_toggler){
+					// jitter hasn't been activated (no violation happened)
+					if( (volt_jitter_counter == 0) && gbcontroller.check_volt_violation(measured_voltage)){
+						// keep track of the first time jitter is triggered
+						if (volt_first){
+							volt_first = false;
+						}
+						// as we detect the voltage violation, we initialize jitter_counter, keep track of the status
+						volt_circuit_status_after_delay = gbcontroller.voltage_controller(circuit_status, measured_voltage);
+						// only start jitter_counter when the voltage violation happened
+						volt_jitter_counter = (int) (gl_random_uniform(RNGSTATE,0, 2*average_delay_time) + 0.5);
+						//	gl_output("we are using jitter! jitter_counter:%d",jitter_counter);
+						// jitter has been activated, starting counting down
+						volt_jitter_toggler = true;
+						//gl_output("jitter_counter:%d",jitter_counter);
+					}
+				} else if (volt_jitter_toggler){
+					// jitter_toggler mode, wait to deply jitter status after jitter_counter times
+					if (!volt_first && (volt_jitter_counter == 0)){
+						// not the first time that jitter is triggered and jitter_counter == 0,
+						// let the status be the circuit_status_after_delay
+						temp_status = volt_circuit_status_after_delay;
+						volt_jitter_toggler = false;
+						status_confirmed = true;
+					} else if (volt_jitter_counter > 0) {
+						// if jitter_counter >0,  we subtract 1
+						volt_jitter_counter -= 1;
+						//gl_output("we are inside counter deduct! jitter_counter:%d, circuit_status:%d",jitter_counter,circuit_status);
+					}
+				}
+			}
+		}
+		// do nothing if mode is not enabled
+		break;
+	case 4:
+		// do nothing as there is no thermal control
+		break;
+	default:
+		GL_THROW("unknown controller number, it has to be 1/2/3/4");
+	}
+	return temp_status;
+}
+
 TIMESTAMP ZIPload::sync(TIMESTAMP t0, TIMESTAMP t1) 
 {
 	TIMESTAMP t2 = TS_NEVER;
 	double real_power = 0.0;
 	double imag_power = 0.0;
 	double angleval;
-
+	int ii;
 	double test = multiplier;
+
+	// access the voltage from the circuit.
+	measured_voltage = pCircuit->pV->Mag();
+
+	// decide the current status based on schedule (base_power)
+	if (base_power == 0.){
+		circuit_status = false;
+	} else {
+		circuit_status = true;
+	}
+	// gl_output("testing! base_power: %f, circuit_status:%d", base_power, circuit_status);
+	// circuit_status = prev_status;
+	// we loop through the controller_array from [3],[2],[1],[0], representing the controller with the highest priority
+	// to the controller with the lowest priority.
+	for (ii=3; ii>=0; ii--){
+		if (!status_confirmed){
+			// if no status can be confirmed, we keep on checking the controller with the lower priority
+			temp_status = get_status(controller_array[ii].second);
+		} else{
+			break;
+		}
+	}
+	circuit_status = temp_status;
+	prev_status = circuit_status;
+
+	if(!circuit_status){
+		// if circuit off, we shutdown the load by forcing base_power being 0.
+		base_power = 0.;
+	}
+	if (status_confirmed){
+		// set status_confirmed back to false, force jitter back to default
+		status_confirmed = false;
+		freq_jitter_counter = 0;
+		freq_jitter_toggler = false;
+		volt_jitter_counter = 0;
+		volt_jitter_toggler = false;
+	}
+
 
 	if (demand_response_mode == true && next_time <= t1)
 	{

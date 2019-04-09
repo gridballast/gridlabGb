@@ -1,0 +1,11 @@
+schedule temp_lock_enable {
+	* 0-17 * * * 0;
+	* 18-21 * * * 1;
+	* 22-23 * * * 0;
+};
+
+schedule temp_lock_status {
+	* 18 * * * 0;
+	* 19-20 * * * 1;
+	* 21 * * * 0;
+};

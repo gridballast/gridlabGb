@@ -13,7 +13,6 @@ Details about how to configure and use the simulator are available in the [Jupyt
 ```sh
 git clone https://github.com/gridballast/utilitySimGB
 cd workdir
-git checkout feature/730
 autoreconf -isf
 ./configure --prefix=$PWD/install --enable-silent-rules
 make
